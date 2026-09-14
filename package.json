@@ -1,0 +1,17 @@
+﻿{
+  "name": "scholars-connect-app",
+  "version": "1.0.0",
+  "description": "Plateforme d'entraide académique multilingue",
+  "main": "demo-server.js",
+  "scripts": {
+    "start": "node demo-server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^0.1.1",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "sqlite3": "^5.1.7"
+  }
+}
