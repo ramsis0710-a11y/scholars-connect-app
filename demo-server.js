@@ -51,10 +51,27 @@ function initDb() {
       details TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // AJOUT : Table pour suivre les connexions visiteurs et leurs Q/R avec heures d'entrée/sortie
+    db.run(`CREATE TABLE IF NOT EXISTS visitor_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      visitor_name TEXT,
+      visitor_email TEXT,
+      login_time DATETIME,
+      logout_time DATETIME
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS visitor_qa (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      visitor_email TEXT,
+      question TEXT,
+      answer TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
   });
 }
 
-// 1. Interface Publique / Visiteur (Aucun lien admin visible)
+// 1. Interface Publique / Visiteur (Intégration Login/MP Visiteur et horodatage sans toucher au reste)
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -73,7 +90,7 @@ app.get('/', (req, res) => {
             .container { max-width: 900px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             h1 { color: var(--primary); margin-top: 0; }
             .card { background: #f1f5f9; padding: 1.5rem; border-radius: 8px; margin-top: 1.5rem; }
-            textarea { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+            textarea, input { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
             button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
             button:hover { opacity: 0.9; }
             .btn-secondary { background: #0ea5e9; }
@@ -82,7 +99,7 @@ app.get('/', (req, res) => {
             #qrcode { display: inline-block; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; }
         </style>
     </head>
-    <body>
+    <body onunload="handleVisitorLogout()">
         <header>
             <div class="logo-area">
                 <img src="https://api.iconify.design/fluent-emoji-flat:mortar-board.svg" alt="Logo Scholars">
@@ -94,7 +111,18 @@ app.get('/', (req, res) => {
             <h1>Bienvenue sur Scholars Connect</h1>
             <p>Plateforme multilingue d'entraide académique et d'assistance intelligente vocale.</p>
 
-            <div class="card">
+            <!-- AJOUT : Bloc d'identification Visiteur (Login + MP) -->
+            <div class="card" id="visitor-auth-card" style="border: 2px solid var(--primary);">
+                <h3>👤 Identification Visiteur obligatoire</h3>
+                <p style="font-size: 0.9rem; color: #475569;">Veuillez saisir vos identifiants pour enregistrer votre session et vos questions.</p>
+                <input type="text" id="vName" placeholder="Votre Nom">
+                <input type="email" id="vEmail" placeholder="Votre Email (Login)">
+                <input type="password" id="vPass" placeholder="Votre Mot de passe (MP)">
+                <button onclick="registerVisitorLogin()">Se connecter en tant que Visiteur</button>
+                <div id="v-status" style="margin-top: 8px; font-weight: bold;"></div>
+            </div>
+
+            <div class="card" id="main-app-content" style="display:none;">
                 <h3>🤖 Assistant IA Gemini (Vocale & Texte)</h3>
                 <textarea id="aiPrompt" rows="3" placeholder="Tapez votre question ou utilisez le micro..."></textarea>
                 
@@ -120,6 +148,38 @@ app.get('/', (req, res) => {
             document.getElementById('current-url').innerText = currentUrl;
             QRCode.toCanvas(document.getElementById('qrcode'), currentUrl, { width: 140 }, function (error) {
                 if (error) console.error(error);
+            });
+
+            let currentVisitorEmail = '';
+
+            async function registerVisitorLogin() {
+                const name = document.getElementById('vName').value;
+                const email = document.getElementById('vEmail').value;
+                const password = document.getElementById('vPass').value;
+                if(!name || !email || !password) {
+                    alert('Veuillez remplir tous les champs (Nom, Email, Mot de passe).');
+                    return;
+                }
+                currentVisitorEmail = email;
+                const res = await fetch('/api/visitor-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, password })
+                });
+                if(res.ok) {
+                    document.getElementById('v-status').innerText = '✅ Session démarrée à ' + new Date().toLocaleTimeString();
+                    document.getElementById('v-status').style.color = 'green';
+                    document.getElementById('visitor-auth-card').style.opacity = '0.7';
+                    document.getElementById('main-app-content').style.display = 'block';
+                } else {
+                    alert('Erreur lors de l’enregistrement de la session.');
+                }
+            }
+
+            window.addEventListener('beforeunload', () => {
+                if(currentVisitorEmail) {
+                    navigator.sendBeacon('/api/visitor-logout', JSON.stringify({ email: currentVisitorEmail }));
+                }
             });
 
             function startVoiceInput() {
@@ -164,7 +224,7 @@ app.get('/', (req, res) => {
                 const res = await fetch('/api/ai', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt })
+                    body: JSON.stringify({ prompt, email: currentVisitorEmail })
                 });
                 const data = await res.json();
                 responseDiv.innerText = data.answer || data.error;
@@ -183,93 +243,139 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 2. Interface Tableau de Bord Administrateur Secret avec tous les indicateurs
+// APIs pour gérer les connexions visiteurs et stocker les Q/R
+app.post('/api/visitor-login', (req, res) => {
+  const { name, email } = req.body;
+  const loginTime = new Date().toISOString();
+  db.run(`INSERT INTO visitor_sessions (visitor_name, visitor_email, login_time) VALUES (?, ?, ?)`, 
+    [name, email, loginTime], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+});
+
+app.post('/api/visitor-logout', express.json(), (req, res) => {
+  const { email } = req.body;
+  const logoutTime = new Date().toISOString();
+  db.run(`UPDATE visitor_sessions SET logout_time = ? WHERE visitor_email = ? AND logout_time IS NULL`, 
+    [logoutTime, email], (err) => {
+      res.json({ success: true });
+    });
+});
+
+// 2. Tableau de bord Administrateur Secret enrichi avec la traçabilité Visiteurs & Q/R
 app.get('/admin-secret-dashboard', (req, res) => {
   db.all(`SELECT COUNT(*) as total_users FROM users`, [], (err, userRows) => {
-    db.all(`SELECT * FROM users`, [], (err, users) => {
-      res.send(`
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Tableau de Bord Administrateur - Scholars Connect</title>
-            <style>
-                :root { --admin-primary: #dc2626; --bg: #f8fafc; --text: #1e293b; }
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; }
-                .dashboard-container { max-width: 1100px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                h1 { color: var(--admin-primary); margin-top: 0; display: flex; align-items: center; gap: 10px; }
-                .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
-                .metric-card { background: #fee2e2; border-left: 5px solid var(--admin-primary); padding: 1.5rem; border-radius: 8px; }
-                .metric-card h3 { margin: 0; color: #991b1b; font-size: 0.9rem; text-transform: uppercase; }
-                .metric-card .value { font-size: 2rem; font-weight: bold; margin-top: 10px; color: #7f1d1d; }
-                .section { margin-top: 2.5rem; }
-                table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-                th, td { padding: 12px; text-align: left; border-bottom: 1px solid #cbd5e1; }
-                th { background: #f1f5f9; color: #334155; }
-                .btn-back { display: inline-block; margin-bottom: 1rem; text-decoration: none; background: #475569; color: white; padding: 8px 14px; border-radius: 6px; font-weight: bold; }
-            </style>
-        </head>
-        <body>
-            <div class="dashboard-container">
-                <a class="btn-back" href="/">⬅️ Retourner au site public</a>
-                <h1>⚙️ Tableau de Bord Administrateur</h1>
-                <p>Panneau de contrôle global, indicateurs de performance et gestion de la plateforme.</p>
+    db.all(`SELECT * FROM visitor_sessions ORDER BY id DESC`, [], (err, sessions) => {
+      db.all(`SELECT * FROM visitor_qa ORDER BY id DESC`, [], (err, qas) => {
+        res.send(`
+          <!DOCTYPE html>
+          <html lang="fr">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Tableau de Bord Administrateur - Scholars Connect</title>
+              <style>
+                  :root { --admin-primary: #dc2626; --bg: #f8fafc; --text: #1e293b; }
+                  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; }
+                  .dashboard-container { max-width: 1200px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                  h1 { color: var(--admin-primary); margin-top: 0; }
+                  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+                  .metric-card { background: #fee2e2; border-left: 5px solid var(--admin-primary); padding: 1.5rem; border-radius: 8px; }
+                  .metric-card h3 { margin: 0; color: #991b1b; font-size: 0.9rem; text-transform: uppercase; }
+                  .metric-card .value { font-size: 2rem; font-weight: bold; margin-top: 10px; color: #7f1d1d; }
+                  .section { margin-top: 2.5rem; }
+                  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+                  th, td { padding: 10px; text-align: left; border-bottom: 1px solid #cbd5e1; font-size: 0.9rem; }
+                  th { background: #f1f5f9; color: #334155; }
+                  .btn-back { display: inline-block; margin-bottom: 1rem; text-decoration: none; background: #475569; color: white; padding: 8px 14px; border-radius: 6px; font-weight: bold; }
+              </style>
+          </head>
+          <body>
+              <div class="dashboard-container">
+                  <a class="btn-back" href="/">⬅️ Retourner au site public</a>
+                  <h1>⚙️ Tableau de Bord Administrateur (Traçabilité Visiteurs & Q/R)</h1>
+                  <p>Suivi en temps réel des connexions visiteurs, heures d'entrée/sortie et questions posées à l'IA.</p>
 
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <h3>Utilisateurs Inscrits</h3>
-                        <div class="value">${userRows[0].total_users}</div>
-                    </div>
-                    <div class="metric-card">
-                        <h3>État du Système</h3>
-                        <div class="value" style="font-size: 1.2rem; color: #16a34a; margin-top: 15px;">🟢 En Ligne (Render)</div>
-                    </div>
-                    <div class="metric-card">
-                        <h3>Modèle IA Actif</h3>
-                        <div class="value" style="font-size: 1.2rem; margin-top: 15px;">Gemini 2.5 Flash</div>
-                    </div>
-                </div>
+                  <div class="metrics-grid">
+                      <div class="metric-card">
+                          <h3>Total Sessions Visiteurs</h3>
+                          <div class="value">${sessions.length}</div>
+                      </div>
+                      <div class="metric-card">
+                          <h3>Total Questions / Réponses</h3>
+                          <div class="value">${qas.length}</div>
+                      </div>
+                      <div class="metric-card">
+                          <h3>État du Système</h3>
+                          <div class="value" style="font-size: 1.2rem; color: #16a34a; margin-top: 15px;">🟢 En Ligne (Render)</div>
+                      </div>
+                  </div>
 
-                <div class="section">
-                    <h3>👥 Liste des Utilisateurs & Rôles</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Nom</th>
-                                <th>Email</th>
-                                <th>Rôle</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${users.map(u => `
-                                <tr>
-                                    <td>${u.id}</td>
-                                    <td>${u.name}</td>
-                                    <td>${u.email}</td>
-                                    <td><strong>${u.role.toUpperCase()}</strong></td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
+                  <div class="section">
+                      <h3>🕒 Suivi des Connexions (Entrée / Sortie des Visiteurs)</h3>
+                      <table>
+                          <thead>
+                              <tr>
+                                  <th>Nom du Visiteur</th>
+                                  <th>Email (Login)</th>
+                                  <th>Heure d'Entrée</th>
+                                  <th>Heure de Sortie</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              ${sessions.map(s => `
+                                  <tr>
+                                      <td>${s.visitor_name || 'Anonyme'}</td>
+                                      <td>${s.visitor_email}</td>
+                                      <td>${s.login_time ? new Date(s.login_time).toLocaleString() : '-'}</td>
+                                      <td>${s.logout_time ? new Date(s.logout_time).toLocaleString() : '<span style="color:green; font-weight:bold;">En ligne 🟢</span>'}</td>
+                                  </tr>
+                              `).join('')}
+                          </tbody>
+                      </table>
+                  </div>
 
-                <div class="section" style="background: #f1f5f9; padding: 1.5rem; border-radius: 8px;">
-                    <h3>🔗 Liens Officiels de la Plateforme</h3>
-                    <p><strong>🌍 Lien Visiteur (À partager partout) :</strong> <br><code>https://scholars-connect-app-1.onrender.com/</code></p>
-                    <p><strong>🔐 Lien Administrateur Secret (Ne pas partager) :</strong> <br><code>https://scholars-connect-app-1.onrender.com/admin-secret-dashboard</code></p>
-                </div>
-            </div>
-        </body>
-        </html>
-      `);
+                  <div class="section">
+                      <h3>💬 Historique des Questions / Réponses (Q/R)</h3>
+                      <table>
+                          <thead>
+                              <tr>
+                                  <th>Visiteur (Email)</th>
+                                  <th>Question posée</th>
+                                  <th>Réponse de l'IA</th>
+                                  <th>Date & Heure</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              ${qas.map(q => `
+                                  <tr>
+                                      <td>${q.visitor_email}</td>
+                                      <td style="color: #2563eb; font-weight: 500;">${q.question}</td>
+                                      <td>${q.answer}</td>
+                                      <td>${new Date(q.created_at).toLocaleString()}</td>
+                                  </tr>
+                              `).join('')}
+                          </tbody>
+                      </table>
+                  </div>
+
+                  <div class="section" style="background: #f1f5f9; padding: 1.5rem; border-radius: 8px;">
+                      <h3>🔗 Liens Officiels</h3>
+                      <p><strong>🌍 Lien Visiteur :</strong> <br><code>https://scholars-connect-app-1.onrender.com/</code></p>
+                      <p><strong>🔐 Lien Admin Secret :</strong> <br><code>https://scholars-connect-app-1.onrender.com/admin-secret-dashboard</code></p>
+                  </div>
+              </div>
+          </body>
+          </html>
+        `);
+      });
     });
   });
 });
 
 app.post('/api/ai', async (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, email } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt requis.' });
   }
@@ -278,7 +384,14 @@ app.post('/api/ai', async (req, res) => {
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
-    res.json({ answer: response.text });
+    const answer = response.text;
+
+    // Enregistrement automatique de la Q/R liée au visiteur
+    if (email) {
+      db.run(`INSERT INTO visitor_qa (visitor_email, question, answer) VALUES (?, ?, ?)`, [email, prompt, answer]);
+    }
+
+    res.json({ answer });
   } catch (error) {
     console.error('Erreur IA Gemini:', error);
     res.status(500).json({ error: 'Erreur lors de la génération avec l’IA.' });
