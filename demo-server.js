@@ -94,6 +94,8 @@ app.get('/', (req, res) => {
             button:hover { opacity: 0.9; }
             .btn-secondary { background: #0ea5e9; }
             .btn-success { background: #16a34a; }
+            .btn-warning { background: #d97706; }
+            .btn-danger { background: #dc2626; }
             .share-box { text-align: center; margin-top: 2rem; padding: 1.5rem; background: #eff6ff; border-radius: 8px; }
             #qrcode { display: inline-block; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; }
         </style>
@@ -147,8 +149,16 @@ app.get('/', (req, res) => {
 
                 <textarea id="aiPrompt" rows="3" placeholder="Posez votre question..."></textarea>
                 
+                <!-- Commandes vocales complètes (Début, Pause, Arrêt) -->
+                <div style="background: #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                    <span style="font-weight: bold; display: block; margin-bottom: 5px;">🎤 Commandes Vocales :</span>
+                    <button class="btn-success" onclick="startVoiceRecording()">▶️ Début</button>
+                    <button class="btn-warning" onclick="pauseVoiceRecording()">⏸️ Pause</button>
+                    <button class="btn-danger" onclick="stopVoiceRecording()">⏹️ Arrêt</button>
+                    <span id="voice-status" style="margin-left: 10px; font-style: italic; color: #334155;">Inactif</span>
+                </div>
+
                 <div>
-                    <button class="btn-secondary" onclick="startVoiceInput()">🎤 Saisie Orale (Dicter la question)</button>
                     <button class="btn-success" onclick="confirmAndSendAI()">✅ Soumettre aux Scholars (7s)</button>
                 </div>
 
@@ -176,7 +186,9 @@ app.get('/', (req, res) => {
             });
 
             let currentVisitorEmail = '';
-            let detectedLanguage = 'fr-FR'; // Langue par défaut
+            let detectedLanguage = 'fr-FR';
+            let recognition = null;
+            let silenceTimer = null;
 
             async function registerVisitorLogin() {
                 const name = document.getElementById('vName').value;
@@ -206,39 +218,71 @@ app.get('/', (req, res) => {
                 }
             });
 
-            // Saisie orale intelligente avec détection de langue automatique
-            function startVoiceInput() {
+            // Gestion complète de la voix (Début, Pause, Arrêt + Pause 7 secondes d'inactivité)
+            function startVoiceRecording() {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) { alert("La reconnaissance vocale n'est pas supportée par votre navigateur."); return; }
-                const recognition = new SpeechRecognition();
-                recognition.lang = 'auto'; // S'adapte à la langue parlée par l'utilisateur
-                recognition.interimResults = false;
+                if (!SpeechRecognition) { alert("Reconnaissance vocale non supportée."); return; }
+                
+                if (!recognition) {
+                    recognition = new SpeechRecognition();
+                    recognition.lang = 'auto';
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
 
-                recognition.onresult = (event) => {
-                    const transcript = event.results[0][0].transcript;
-                    document.getElementById('aiPrompt').value = transcript;
-                    // Détection approximative de la langue selon le contenu pour la synthèse vocale
-                    if (/[\u0600-\u06FF]/.test(transcript)) {
-                        detectedLanguage = 'ar-SA';
-                    } else if (/[a-zA-Z]/.test(transcript)) {
-                        detectedLanguage = 'en-US';
-                    } else {
-                        detectedLanguage = 'fr-FR';
-                    }
-                };
-                recognition.onerror = (event) => {
-                    // Fallback sur le français si la détection automatique pose problème
-                    recognition.lang = 'fr-FR';
-                };
+                    recognition.onresult = (event) => {
+                        let transcript = '';
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            transcript += event.results[i][0].transcript;
+                        }
+                        if (transcript.trim()) {
+                            document.getElementById('aiPrompt').value += " " + transcript;
+                            
+                            // Détection de langue
+                            if (/[\u0600-\u06FF]/.test(transcript)) { detectedLanguage = 'ar-SA'; }
+                            else if (/[a-zA-Z]/.test(transcript)) { detectedLanguage = 'en-US'; }
+                            else { detectedLanguage = 'fr-FR'; }
+
+                            // Réinitialisation du minuteur de pause de 7 secondes d'inactivité
+                            clearTimeout(silenceTimer);
+                            silenceTimer = setTimeout(() => {
+                                document.getElementById('voice-status').innerText = "⏸️ 7 secondes de pause détectées. Avez-vous terminé vos questions ?";
+                                if(confirm("Avez-vous terminé de poser vos questions ?")) {
+                                    stopVoiceRecording();
+                                }
+                            }, 7000);
+                        }
+                    };
+
+                    recognition.onerror = (e) => { console.error(e); };
+                }
+
                 recognition.start();
+                document.getElementById('voice-status').innerText = "🟢 En écoute...";
+            }
+
+            function pauseVoiceRecording() {
+                if (recognition) {
+                    recognition.stop();
+                    clearTimeout(silenceTimer);
+                    document.getElementById('voice-status').innerText = "⏸️ En pause.";
+                }
+            }
+
+            function stopVoiceRecording() {
+                if (recognition) {
+                    recognition.stop();
+                    clearTimeout(silenceTimer);
+                    document.getElementById('voice-status').innerText = "⏹️ Arrêté.";
+                }
             }
 
             let countdownInterval;
             function confirmAndSendAI() {
+                stopVoiceRecording();
                 let timeLeft = 7;
                 const timerEl = document.getElementById('timer-display');
                 const domain = document.getElementById('domainSelect').value;
-                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min activé / arbitrage Gemini en cours)...";
+                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min / arbitrage Gemini en cours)...";
                 
                 clearInterval(countdownInterval);
                 countdownInterval = setInterval(() => {
@@ -270,7 +314,6 @@ app.get('/', (req, res) => {
                 responseDiv.innerText = data.answer;
             }
 
-            // Lecture vocale de la réponse dans la langue détectée de la question
             function speakResponse() {
                 const text = document.getElementById('aiResponse').innerText;
                 if (!text) return;
@@ -282,7 +325,7 @@ app.get('/', (req, res) => {
             function shareQA() {
                 const q = document.getElementById('aiPrompt').value;
                 const a = document.getElementById('aiResponse').innerText;
-                const shareText = "Q/R Scholars Connect:\nQ: " + q + "\nR: " + a;
+                const shareText = "Q/R Scholars Connect:\\nQ: " + q + "\\nR: " + a;
                 if (navigator.share) {
                     navigator.share({ title: 'Scholars Connect Q/R', text: shareText }).catch(console.error);
                 } else {
