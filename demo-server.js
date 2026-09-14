@@ -149,12 +149,11 @@ app.get('/', (req, res) => {
 
                 <textarea id="aiPrompt" rows="3" placeholder="Posez votre question..."></textarea>
                 
-                <!-- Commandes vocales complètes (Début, Pause, Arrêt) -->
                 <div style="background: #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 15px;">
                     <span style="font-weight: bold; display: block; margin-bottom: 5px;">🎤 Commandes Vocales :</span>
-                    <button class="btn-success" onclick="startVoiceRecording()">▶️ Début</button>
+                    <button class="btn-success" onclick="startVoiceRecording('aiPrompt', 'voice-status', setDetectedLang)">▶️ Début</button>
                     <button class="btn-warning" onclick="pauseVoiceRecording()">⏸️ Pause</button>
-                    <button class="btn-danger" onclick="stopVoiceRecording()">⏹️ Arrêt</button>
+                    <button class="btn-danger" onclick="stopVoiceRecording('voice-status')">⏹️ Arrêt</button>
                     <span id="voice-status" style="margin-left: 10px; font-style: italic; color: #334155;">Inactif</span>
                 </div>
 
@@ -190,6 +189,8 @@ app.get('/', (req, res) => {
             let recognition = null;
             let silenceTimer = null;
 
+            function setDetectedLang(lang) { detectedLanguage = lang; }
+
             async function registerVisitorLogin() {
                 const name = document.getElementById('vName').value;
                 const email = document.getElementById('vEmail').value;
@@ -218,8 +219,7 @@ app.get('/', (req, res) => {
                 }
             });
 
-            // Gestion complète de la voix (Début, Pause, Arrêt + Pause 7 secondes d'inactivité)
-            function startVoiceRecording() {
+            function startVoiceRecording(targetInputId, statusId, langCallback) {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 if (!SpeechRecognition) { alert("Reconnaissance vocale non supportée."); return; }
                 
@@ -235,29 +235,26 @@ app.get('/', (req, res) => {
                             transcript += event.results[i][0].transcript;
                         }
                         if (transcript.trim()) {
-                            document.getElementById('aiPrompt').value += " " + transcript;
+                            const target = document.getElementById(targetInputId);
+                            target.value += " " + transcript;
                             
-                            // Détection de langue
-                            if (/[\u0600-\u06FF]/.test(transcript)) { detectedLanguage = 'ar-SA'; }
-                            else if (/[a-zA-Z]/.test(transcript)) { detectedLanguage = 'en-US'; }
-                            else { detectedLanguage = 'fr-FR'; }
+                            if (/[\u0600-\u06FF]/.test(transcript)) { langCallback('ar-SA'); }
+                            else if (/[a-zA-Z]/.test(transcript)) { langCallback('en-US'); }
+                            else { langCallback('fr-FR'); }
 
-                            // Réinitialisation du minuteur de pause de 7 secondes d'inactivité
                             clearTimeout(silenceTimer);
                             silenceTimer = setTimeout(() => {
-                                document.getElementById('voice-status').innerText = "⏸️ 7 secondes de pause détectées. Avez-vous terminé vos questions ?";
+                                document.getElementById(statusId).innerText = "⏸️ 7s de pause. Fin de question ?";
                                 if(confirm("Avez-vous terminé de poser vos questions ?")) {
-                                    stopVoiceRecording();
+                                    stopVoiceRecording(statusId);
                                 }
                             }, 7000);
                         }
                     };
-
-                    recognition.onerror = (e) => { console.error(e); };
                 }
 
                 recognition.start();
-                document.getElementById('voice-status').innerText = "🟢 En écoute...";
+                document.getElementById(statusId).innerText = "🟢 En écoute...";
             }
 
             function pauseVoiceRecording() {
@@ -268,11 +265,11 @@ app.get('/', (req, res) => {
                 }
             }
 
-            function stopVoiceRecording() {
+            function stopVoiceRecording(statusId = 'voice-status') {
                 if (recognition) {
                     recognition.stop();
                     clearTimeout(silenceTimer);
-                    document.getElementById('voice-status').innerText = "⏹️ Arrêté.";
+                    document.getElementById(statusId).innerText = "⏹️ Arrêté.";
                 }
             }
 
@@ -282,7 +279,7 @@ app.get('/', (req, res) => {
                 let timeLeft = 7;
                 const timerEl = document.getElementById('timer-display');
                 const domain = document.getElementById('domainSelect').value;
-                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min / arbitrage Gemini en cours)...";
+                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai 5 min / arbitrage Gemini)...";
                 
                 clearInterval(countdownInterval);
                 countdownInterval = setInterval(() => {
@@ -310,7 +307,7 @@ app.get('/', (req, res) => {
                     body: JSON.stringify({ prompt, domain, email: currentVisitorEmail })
                 });
                 const data = await res.json();
-                document.getElementById('scholars-assigned').innerHTML = "👥 <strong>Scholars assignés & consultés :</strong> " + (data.scholars || "Experts certifiés");
+                document.getElementById('scholars-assigned').innerHTML = "👥 <strong>Scholars consultés :</strong> " + (data.scholars || "Experts certifiés");
                 responseDiv.innerText = data.answer;
             }
 
@@ -357,7 +354,7 @@ app.post('/api/visitor-logout', express.json(), (req, res) => {
     });
 });
 
-// 2. Tableau de bord Administrateur Secret avec l'ACCÈS DIRECT ADMIN et les Scholars par domaine
+// 2. Tableau de bord Administrateur Secret avec l'ACCÈS DIRECT ADMIN, les Scholars par domaine et MICRO AUTOMATIQUE
 app.get('/admin-secret-dashboard', (req, res) => {
   db.all(`SELECT COUNT(*) as total_users FROM users`, [], (err, userRows) => {
     db.all(`SELECT * FROM visitor_sessions ORDER BY id DESC`, [], (err, sessions) => {
@@ -384,17 +381,17 @@ app.get('/admin-secret-dashboard', (req, res) => {
                   th { background: #f1f5f9; color: #334155; }
                   .btn-back { display: inline-block; margin-bottom: 1rem; text-decoration: none; background: #475569; color: white; padding: 8px 14px; border-radius: 6px; font-weight: bold; }
                   textarea, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-                  button { background: var(--admin-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+                  button { background: var(--admin-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
               </style>
           </head>
           <body>
               <div class="dashboard-container">
                   <a class="btn-back" href="/">⬅️ Retourner au site public</a>
-                  <h1>⚙️ Tableau de Bord Administrateur (Accès Direct & Scholars)</h1>
+                  <h1>⚙️ Tableau de Bord Administrateur (Accès Direct, Scholars & Micro Auto)</h1>
 
-                  <!-- AJOUT : Espace d'accès direct Admin sans passer par le public -->
+                  <!-- Espace d'accès direct Admin avec micro et commandes vocales activées -->
                   <div class="section" style="background: #fff5f5; padding: 1.5rem; border-radius: 8px; border: 2px dashed var(--admin-primary);">
-                      <h3 style="color: var(--admin-primary);">⚡ Accès Direct Administrateur (Poser une question directement)</h3>
+                      <h3 style="color: var(--admin-primary);">⚡ Accès Direct Administrateur (Avec Saisie Vocale Automatisée)</h3>
                       <label>Domaine d'expertise :</label>
                       <select id="adminDomain">
                           <option value="Mathématiques">Mathématiques</option>
@@ -408,7 +405,16 @@ app.get('/admin-secret-dashboard', (req, res) => {
                           <option value="Arts & Culture Générale">Arts & Culture Générale</option>
                           <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
                       </select>
-                      <textarea id="adminPrompt" rows="3" placeholder="Saisissez votre question administrateur ici..."></textarea>
+                      <textarea id="adminPrompt" rows="3" placeholder="Dictez ou saisissez votre question administrateur ici..."></textarea>
+                      
+                      <div style="background: #fecaca; padding: 10px; border-radius: 6px; margin-bottom: 15px;">
+                          <span style="font-weight: bold; display: block; margin-bottom: 5px; color: #991b1b;">🎤 Commandes Vocales Admin :</span>
+                          <button style="background: #16a34a;" onclick="startAdminVoice()">▶️ Début Auto</button>
+                          <button style="background: #d97706;" onclick="pauseVoiceRecording()">⏸️ Pause</button>
+                          <button style="background: #dc2626;" onclick="stopVoiceRecording('admin-voice-status')">⏹️ Arrêt</button>
+                          <span id="admin-voice-status" style="margin-left: 10px; font-style: italic; color: #7f1d1d;">Prêt (S'active automatiquement à l'ouverture)</span>
+                      </div>
+
                       <button onclick="adminAskAI()">Interroger les Scholars & Gemini directement</button>
                       <div id="adminResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
                   </div>
@@ -474,7 +480,26 @@ app.get('/admin-secret-dashboard', (req, res) => {
               </div>
 
               <script>
+                  let adminDetectedLang = 'fr-FR';
+                  function setAdminLang(lang) { adminDetectedLang = lang; }
+
+                  // Activation automatique du micro dès l'ouverture du tableau de bord admin
+                  window.addEventListener('DOMContentLoaded', () => {
+                      setTimeout(() => {
+                          try {
+                              startVoiceRecording('adminPrompt', 'admin-voice-status', setAdminLang);
+                          } catch(e) {
+                              console.log("Activation automatique du micro en attente d'interaction utilisateur.");
+                          }
+                      }, 1000);
+                  });
+
+                  function startAdminVoice() {
+                      startVoiceRecording('adminPrompt', 'admin-voice-status', setAdminLang);
+                  }
+
                   async function adminAskAI() {
+                      stopVoiceRecording('admin-voice-status');
                       const prompt = document.getElementById('adminPrompt').value;
                       const domain = document.getElementById('adminDomain').value;
                       const respDiv = document.getElementById('adminResponse');
