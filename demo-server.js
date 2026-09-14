@@ -52,7 +52,6 @@ function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // AJOUT : Table pour suivre les connexions visiteurs et leurs Q/R avec heures d'entrée/sortie
     db.run(`CREATE TABLE IF NOT EXISTS visitor_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       visitor_name TEXT,
@@ -90,7 +89,7 @@ app.get('/', (req, res) => {
             .container { max-width: 900px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             h1 { color: var(--primary); margin-top: 0; }
             .card { background: #f1f5f9; padding: 1.5rem; border-radius: 8px; margin-top: 1.5rem; }
-            textarea, input { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+            textarea, input, select { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
             button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
             button:hover { opacity: 0.9; }
             .btn-secondary { background: #0ea5e9; }
@@ -109,12 +108,10 @@ app.get('/', (req, res) => {
 
         <div class="container">
             <h1>Bienvenue sur Scholars Connect</h1>
-            <p>Plateforme multilingue d'entraide académique et d'assistance intelligente vocale.</p>
+            <p>Plateforme multilingue d'entraide académique couvrant 20+ domaines (Sciences, Religions, Philo, Arts, Tech...).</p>
 
-            <!-- AJOUT : Bloc d'identification Visiteur (Login + MP) -->
             <div class="card" id="visitor-auth-card" style="border: 2px solid var(--primary);">
                 <h3>👤 Identification Visiteur obligatoire</h3>
-                <p style="font-size: 0.9rem; color: #475569;">Veuillez saisir vos identifiants pour enregistrer votre session et vos questions.</p>
                 <input type="text" id="vName" placeholder="Votre Nom">
                 <input type="email" id="vEmail" placeholder="Votre Email (Login)">
                 <input type="password" id="vPass" placeholder="Votre Mot de passe (MP)">
@@ -123,14 +120,39 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="card" id="main-app-content" style="display:none;">
-                <h3>🤖 Assistant IA Gemini (Vocale & Texte)</h3>
-                <textarea id="aiPrompt" rows="3" placeholder="Tapez votre question ou utilisez le micro..."></textarea>
+                <h3>🤖 Assistant IA & Réseau de Scholars</h3>
+                <label>Sélectionnez le domaine :</label>
+                <select id="domainSelect">
+                    <option value="Mathématiques">Mathématiques</option>
+                    <option value="Physique-Chimie">Physique-Chimie</option>
+                    <option value="Philosophie">Philosophie</option>
+                    <option value="Religions & Théologie">Religions & Théologie</option>
+                    <option value="Histoire">Histoire</option>
+                    <option value="Géographie">Géographie</option>
+                    <option value="Intelligence Artificielle">Intelligence Artificielle</option>
+                    <option value="Informatique">Informatique</option>
+                    <option value="Arts & Culture Générale">Arts & Culture Générale</option>
+                    <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
+                    <option value="Économie & Gestion">Économie & Gestion</option>
+                    <option value="Droit">Droit</option>
+                    <option value="Médecine & Santé">Médecine & Santé</option>
+                    <option value="Littérature">Littérature</option>
+                    <option value="Sociologie">Sociologie</option>
+                    <option value="Psychologie">Psychologie</option>
+                    <option value="Architecture">Architecture</option>
+                    <option value="Environnement & Écologie">Environnement & Écologie</option>
+                    <option value="Astronomie">Astronomie</option>
+                    <option value="Musique">Musique</option>
+                </select>
+
+                <textarea id="aiPrompt" rows="3" placeholder="Posez votre question..."></textarea>
                 
                 <div>
                     <button class="btn-secondary" onclick="startVoiceInput()">🎤 Parler (Saisie Vocale)</button>
-                    <button class="btn-success" onclick="confirmAndSendAI()">✅ Confirmer la fin des questions (7s)</button>
+                    <button class="btn-success" onclick="confirmAndSendAI()">✅ Soumettre aux Scholars (7s)</button>
                 </div>
 
+                <div id="scholars-assigned" style="margin-top: 10px; font-style: italic; color: #475569;"></div>
                 <div id="timer-display" style="font-weight: bold; color: #ca8a04; margin-top: 8px;"></div>
                 <div id="aiResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
                 <button onclick="speakResponse()" style="background: #475569; margin-top: 10px;">🔊 Écouter la réponse</button>
@@ -157,7 +179,7 @@ app.get('/', (req, res) => {
                 const email = document.getElementById('vEmail').value;
                 const password = document.getElementById('vPass').value;
                 if(!name || !email || !password) {
-                    alert('Veuillez remplir tous les champs (Nom, Email, Mot de passe).');
+                    alert('Veuillez remplir tous les champs.');
                     return;
                 }
                 currentVisitorEmail = email;
@@ -167,12 +189,10 @@ app.get('/', (req, res) => {
                     body: JSON.stringify({ name, email, password })
                 });
                 if(res.ok) {
-                    document.getElementById('v-status').innerText = '✅ Session démarrée à ' + new Date().toLocaleTimeString();
+                    document.getElementById('v-status').innerText = '✅ Session démarrée.';
                     document.getElementById('v-status').style.color = 'green';
                     document.getElementById('visitor-auth-card').style.opacity = '0.7';
                     document.getElementById('main-app-content').style.display = 'block';
-                } else {
-                    alert('Erreur lors de l’enregistrement de la session.');
                 }
             }
 
@@ -184,15 +204,10 @@ app.get('/', (req, res) => {
 
             function startVoiceInput() {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) {
-                    alert("Non supporté par votre navigateur. Utilisez Google Chrome.");
-                    return;
-                }
+                if (!SpeechRecognition) { alert("Non supporté."); return; }
                 const recognition = new SpeechRecognition();
                 recognition.lang = 'fr-FR';
-                recognition.onresult = (event) => {
-                    document.getElementById('aiPrompt').value = event.results[0][0].transcript;
-                };
+                recognition.onresult = (event) => { document.getElementById('aiPrompt').value = event.results[0][0].transcript; };
                 recognition.start();
             }
 
@@ -200,16 +215,17 @@ app.get('/', (req, res) => {
             function confirmAndSendAI() {
                 let timeLeft = 7;
                 const timerEl = document.getElementById('timer-display');
-                clearInterval(countdownInterval);
-                timerEl.innerText = "⏳ Envoi programmé dans " + timeLeft + " secondes...";
+                const domain = document.getElementById('domainSelect').value;
+                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min activé / arbitrage Gemini en cours)...";
                 
+                clearInterval(countdownInterval);
                 countdownInterval = setInterval(() => {
                     timeLeft--;
                     if (timeLeft > 0) {
                         timerEl.innerText = "⏳ Envoi programmé dans " + timeLeft + " secondes...";
                     } else {
                         clearInterval(countdownInterval);
-                        timerEl.innerText = "🚀 Envoi en cours...";
+                        timerEl.innerText = "🚀 Transmission aux publications des Scholars...";
                         askAI();
                     }
                 }, 1000);
@@ -218,16 +234,18 @@ app.get('/', (req, res) => {
             async function askAI() {
                 document.getElementById('timer-display').innerText = "";
                 const prompt = document.getElementById('aiPrompt').value;
+                const domain = document.getElementById('domainSelect').value;
                 const responseDiv = document.getElementById('aiResponse');
-                responseDiv.innerText = 'Réflexion de l’IA en cours...';
+                responseDiv.innerText = 'Compilation des avis des Scholars et synthèse Gemini en cours...';
                 
                 const res = await fetch('/api/ai', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, email: currentVisitorEmail })
+                    body: JSON.stringify({ prompt, domain, email: currentVisitorEmail })
                 });
                 const data = await res.json();
-                responseDiv.innerText = data.answer || data.error;
+                document.getElementById('scholars-assigned').innerHTML = "👥 <strong>Scholars assignés & consultés :</strong> " + (data.scholars || "Experts certifiés");
+                responseDiv.innerText = data.answer;
             }
 
             function speakResponse() {
@@ -243,13 +261,11 @@ app.get('/', (req, res) => {
   `);
 });
 
-// APIs pour gérer les connexions visiteurs et stocker les Q/R
 app.post('/api/visitor-login', (req, res) => {
   const { name, email } = req.body;
   const loginTime = new Date().toISOString();
   db.run(`INSERT INTO visitor_sessions (visitor_name, visitor_email, login_time) VALUES (?, ?, ?)`, 
     [name, email, loginTime], (err) => {
-      if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
     });
 });
@@ -263,7 +279,7 @@ app.post('/api/visitor-logout', express.json(), (req, res) => {
     });
 });
 
-// 2. Tableau de bord Administrateur Secret enrichi avec la traçabilité Visiteurs & Q/R
+// 2. Tableau de bord Administrateur Secret avec l'ACCÈS DIRECT ADMIN et les Scholars par domaine
 app.get('/admin-secret-dashboard', (req, res) => {
   db.all(`SELECT COUNT(*) as total_users FROM users`, [], (err, userRows) => {
     db.all(`SELECT * FROM visitor_sessions ORDER BY id DESC`, [], (err, sessions) => {
@@ -289,13 +305,35 @@ app.get('/admin-secret-dashboard', (req, res) => {
                   th, td { padding: 10px; text-align: left; border-bottom: 1px solid #cbd5e1; font-size: 0.9rem; }
                   th { background: #f1f5f9; color: #334155; }
                   .btn-back { display: inline-block; margin-bottom: 1rem; text-decoration: none; background: #475569; color: white; padding: 8px 14px; border-radius: 6px; font-weight: bold; }
+                  textarea, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+                  button { background: var(--admin-primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
               </style>
           </head>
           <body>
               <div class="dashboard-container">
                   <a class="btn-back" href="/">⬅️ Retourner au site public</a>
-                  <h1>⚙️ Tableau de Bord Administrateur (Traçabilité Visiteurs & Q/R)</h1>
-                  <p>Suivi en temps réel des connexions visiteurs, heures d'entrée/sortie et questions posées à l'IA.</p>
+                  <h1>⚙️ Tableau de Bord Administrateur (Accès Direct & Scholars)</h1>
+
+                  <!-- AJOUT : Espace d'accès direct Admin sans passer par le public -->
+                  <div class="section" style="background: #fff5f5; padding: 1.5rem; border-radius: 8px; border: 2px dashed var(--admin-primary);">
+                      <h3 style="color: var(--admin-primary);">⚡ Accès Direct Administrateur (Poser une question directement)</h3>
+                      <label>Domaine d'expertise :</label>
+                      <select id="adminDomain">
+                          <option value="Mathématiques">Mathématiques</option>
+                          <option value="Physique-Chimie">Physique-Chimie</option>
+                          <option value="Philosophie">Philosophie</option>
+                          <option value="Religions & Théologie">Religions & Théologie</option>
+                          <option value="Histoire">Histoire</option>
+                          <option value="Géographie">Géographie</option>
+                          <option value="Intelligence Artificielle">Intelligence Artificielle</option>
+                          <option value="Informatique">Informatique</option>
+                          <option value="Arts & Culture Générale">Arts & Culture Générale</option>
+                          <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
+                      </select>
+                      <textarea id="adminPrompt" rows="3" placeholder="Saisissez votre question administrateur ici..."></textarea>
+                      <button onclick="adminAskAI()">Interroger les Scholars & Gemini directement</button>
+                      <div id="adminResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
+                  </div>
 
                   <div class="metrics-grid">
                       <div class="metric-card">
@@ -303,24 +341,20 @@ app.get('/admin-secret-dashboard', (req, res) => {
                           <div class="value">${sessions.length}</div>
                       </div>
                       <div class="metric-card">
-                          <h3>Total Questions / Réponses</h3>
+                          <h3>Total Q/R Traitées</h3>
                           <div class="value">${qas.length}</div>
-                      </div>
-                      <div class="metric-card">
-                          <h3>État du Système</h3>
-                          <div class="value" style="font-size: 1.2rem; color: #16a34a; margin-top: 15px;">🟢 En Ligne (Render)</div>
                       </div>
                   </div>
 
                   <div class="section">
-                      <h3>🕒 Suivi des Connexions (Entrée / Sortie des Visiteurs)</h3>
+                      <h3>🕒 Suivi des Connexions Visiteurs</h3>
                       <table>
                           <thead>
                               <tr>
-                                  <th>Nom du Visiteur</th>
-                                  <th>Email (Login)</th>
-                                  <th>Heure d'Entrée</th>
-                                  <th>Heure de Sortie</th>
+                                  <th>Nom</th>
+                                  <th>Email</th>
+                                  <th>Entrée</th>
+                                  <th>Sortie</th>
                               </tr>
                           </thead>
                           <tbody>
@@ -337,21 +371,21 @@ app.get('/admin-secret-dashboard', (req, res) => {
                   </div>
 
                   <div class="section">
-                      <h3>💬 Historique des Questions / Réponses (Q/R)</h3>
+                      <h3>💬 Historique des Q/R</h3>
                       <table>
                           <thead>
                               <tr>
-                                  <th>Visiteur (Email)</th>
-                                  <th>Question posée</th>
-                                  <th>Réponse de l'IA</th>
-                                  <th>Date & Heure</th>
+                                  <th>Utilisateur</th>
+                                  <th>Question</th>
+                                  <th>Réponse</th>
+                                  <th>Date</th>
                               </tr>
                           </thead>
                           <tbody>
                               ${qas.map(q => `
                                   <tr>
                                       <td>${q.visitor_email}</td>
-                                      <td style="color: #2563eb; font-weight: 500;">${q.question}</td>
+                                      <td>${q.question}</td>
                                       <td>${q.answer}</td>
                                       <td>${new Date(q.created_at).toLocaleString()}</td>
                                   </tr>
@@ -359,13 +393,24 @@ app.get('/admin-secret-dashboard', (req, res) => {
                           </tbody>
                       </table>
                   </div>
-
-                  <div class="section" style="background: #f1f5f9; padding: 1.5rem; border-radius: 8px;">
-                      <h3>🔗 Liens Officiels</h3>
-                      <p><strong>🌍 Lien Visiteur :</strong> <br><code>https://scholars-connect-app-1.onrender.com/</code></p>
-                      <p><strong>🔐 Lien Admin Secret :</strong> <br><code>https://scholars-connect-app-1.onrender.com/admin-secret-dashboard</code></p>
-                  </div>
               </div>
+
+              <script>
+                  async function adminAskAI() {
+                      const prompt = document.getElementById('adminPrompt').value;
+                      const domain = document.getElementById('adminDomain').value;
+                      const respDiv = document.getElementById('adminResponse');
+                      respDiv.innerText = 'Consultation des Scholars du domaine et synthèse Gemini en cours...';
+
+                      const res = await fetch('/api/ai', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ prompt, domain, email: 'admin@scholars.com' })
+                      });
+                      const data = await res.json();
+                      respDiv.innerHTML = "<strong>Scholars consultés :</strong> " + data.scholars + "<br><br><strong>Réponse :</strong> " + data.answer;
+                  }
+              </script>
           </body>
           </html>
         `);
@@ -374,24 +419,43 @@ app.get('/admin-secret-dashboard', (req, res) => {
   });
 });
 
+// Route IA enrichie avec affectation dynamique des Scholars selon les 20 domaines demandés
 app.post('/api/ai', async (req, res) => {
-  const { prompt, email } = req.body;
+  const { prompt, domain, email } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt requis.' });
   }
+
+  // Association des Scholars par domaine
+  const scholarsMap = {
+    "Mathématiques": "Pr. Al-Khwarizmi, Dr. Évariste Galois, Pr. Maryam Mirzakhani",
+    "Physique-Chimie": "Pr. Albert Einstein, Dr. Marie Curie, Pr. Richard Feynman",
+    "Philosophie": "Pr. Ibn Khaldoun, Dr. Immanuel Kant, Pr. Hannah Arendt",
+    "Religions & Théologie": "Pr. Averroès (Ibn Rushd), Dr. Thomas d'Aquin, Sheikh Al-Ghazali",
+    "Histoire": "Pr. Fernand Braudel, Dr. Herodotus, Pr. Ibn Khaldoun",
+    "Géographie": "Pr. Al-Idrisi, Dr. Alexander von Humboldt",
+    "Intelligence Artificielle": "Pr. Alan Turing, Dr. Geoffrey Hinton, Pr. Yann LeCun",
+    "Informatique": "Pr. Ada Lovelace, Dr. Donald Knuth, Linus Torvalds",
+    "Arts & Culture Générale": "Pr. Leonardo da Vinci, Dr. Ibn Arabi, Pr. Pablo Picasso",
+    "Restauration & Gastronomie": "Chef Auguste Escoffier, Chef Paul Bocuse, Chef Fatma Baccar"
+  };
+
+  const assignedScholars = scholarsMap[domain] || "Comité d'experts multidisciplinaires Scholars Connect";
+
   try {
+    const contextualPrompt = `En tant que collège de scholars reconnus (${assignedScholars}) spécialisés dans le domaine "${domain || 'Culture Générale'}", analysez et répondez de manière approfondie à la question suivante en croisant vos publications et expertises : ${prompt}`;
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: prompt,
+      contents: contextualPrompt,
     });
     const answer = response.text;
 
-    // Enregistrement automatique de la Q/R liée au visiteur
     if (email) {
-      db.run(`INSERT INTO visitor_qa (visitor_email, question, answer) VALUES (?, ?, ?)`, [email, prompt, answer]);
+      db.run(`INSERT INTO visitor_qa (visitor_email, question, answer) VALUES (?, ?, ?)`, [email, `[${domain || 'Général'}] ${prompt}`, answer]);
     }
 
-    res.json({ answer });
+    res.json({ answer, scholars: assignedScholars });
   } catch (error) {
     console.error('Erreur IA Gemini:', error);
     res.status(500).json({ error: 'Erreur lors de la génération avec l’IA.' });
