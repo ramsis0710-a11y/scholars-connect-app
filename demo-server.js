@@ -1,310 +1,245 @@
-Ôªøconst express = require('express');
+require('dotenv').config();
+const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
-
+const path = require('path');
 const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'votre_secret_jwt_super_securise_scholars';
+const JWT_SECRET = process.env.JWT_SECRET || 'scholars_secret_key_2026';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Initialisation de l'API Google Gemini (Utilise process.env.GEMINI_API_KEY)
+const ai = new GoogleGenAI();
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const db = new sqlite3.Database('./database.sqlite', (err) => {
-    if (err) {
-        console.error('Erreur ouverture DB', err.message);
-    } else {
-        console.log('Connect√© √† la base de donn√©es SQLite.');
-        db.run('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, role TEXT DEFAULT "user", status TEXT DEFAULT "active", last_login TEXT, last_logout TEXT)', () => {
-            db.get('SELECT * FROM users WHERE username = ?', ['ramsis0710@gmail.com'], (err, row) => {
-                if (!row) {
-                    const hashedPwd = bcrypt.hashSync('AdminPass123!', 8);
-                    db.run('INSERT INTO users (username, password, role, status) VALUES (?, ?, "admin", "active")', ['ramsis0710@gmail.com', hashedPwd]);
-                }
-            });
-        });
-
-        db.run('CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, domain TEXT, specialty TEXT, scholar_name TEXT, prompt TEXT, reply TEXT, status TEXT DEFAULT "En attente", created_at TEXT)');
-    }
+// Configuration de la base de donnÈes SQLite
+const dbFile = path.join(__dirname, 'scholars.db');
+const db = new sqlite3.Database(dbFile, (err) => {
+  if (err) {
+    console.error('Erreur d\'ouverture de la base de donnÈes', err.message);
+  } else {
+    console.log('ConnectÈ ‡ la base de donnÈes SQLite.');
+    initDb();
+  }
 });
 
-function verifyToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token manquant.' });
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Token invalide.' });
-        db.get('SELECT status FROM users WHERE id = ?', [user.id], (err, row) => {
-            if (row && row.status === 'inactive') {
-                return res.status(403).json({ error: 'Compte d√©sactiv√© par l\'administrateur.' });
-            }
-            req.user = user;
-            next();
-        });
+function initDb() {
+  db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      role TEXT DEFAULT 'visitor'
+    )`, () => {
+      // CrÈation automatique d'un compte Admin par dÈfaut
+      const adminEmail = 'admin@scholars.com';
+      db.get(`SELECT * FROM users WHERE email = ?`, [adminEmail], async (err, row) => {
+        if (!row) {
+          const hashedPassword = await bcrypt.hash('admin123', 10);
+          db.run(`INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)`,
+            ['Administrateur', adminEmail, hashedPassword, 'admin']);
+          console.log('Compte Administrateur par dÈfaut crÈÈ : admin@scholars.com / admin123');
+        }
+      });
     });
+
+    db.run(`CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      author TEXT NOT NULL,
+      language TEXT DEFAULT 'fr',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+  });
 }
 
-app.post('/api/register', (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Champs requis.' });
-    const hashedPassword = bcrypt.hashSync(password, 8);
-    db.run('INSERT INTO users (username, password, role, status) VALUES (?, ?, "user", "active")', [username, hashedPassword], function(err) {
-        if (err) return res.status(400).json({ error: 'Utilisateur d√©j√† existant.' });
-        res.json({ message: 'Inscription r√©ussie !', userId: this.lastID });
-    });
-});
-
-app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-        if (err || !user || !bcrypt.compareSync(password, user.password)) {
-            return res.status(401).json({ error: 'Identifiants invalides.' });
-        }
-        if (user.status === 'inactive') return res.status(403).json({ error: 'Compte d√©sactiv√©.' });
-
-        const now = new Date().toISOString();
-        db.run('UPDATE users SET last_login = ? WHERE id = ?', [now, user.id]);
-
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '4h' });
-        res.json({ message: 'Connexion r√©ussie', token, role: user.role, username: user.username });
-    });
-});
-
-app.post('/api/logout', verifyToken, (req, res) => {
-    const now = new Date().toISOString();
-    db.run('UPDATE users SET last_logout = ? WHERE id = ?', [now, req.user.id], () => {
-        res.json({ message: 'D√©connexion enregistr√©e.' });
-    });
-});
-
-app.get('/api/admin/users', verifyToken, (req, res) => {
-    if (req.user.username !== 'ramsis0710@gmail.com') return res.status(403).json({ error: 'Acc√®s refus√©.' });
-    db.all('SELECT id, username, role, status, last_login, last_logout FROM users', [], (err, rows) => {
-        res.json(rows);
-    });
-});
-
-app.post('/api/admin/toggle-status', verifyToken, (req, res) => {
-    if (req.user.username !== 'ramsis0710@gmail.com') return res.status(403).json({ error: 'Acc√®s refus√©.' });
-    const { userId, status } = req.body;
-    db.run('UPDATE users SET status = ? WHERE id = ?', [status, userId], () => {
-        res.json({ message: 'Statut mis √† jour.' });
-    });
-});
-
-app.post('/api/questions', verifyToken, async (req, res) => {
-    const { domain, specialty, scholar_name, prompt } = req.body;
-    if (!prompt) return res.status(400).json({ error: 'Prompt requis.' });
-    const createdAt = new Date().toLocaleDateString('fr-FR');
-    try {
-        const aiResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `En tant que Juge Acad√©mique, r√©ponds en expert √† la question en ${domain} (${specialty}), assign√©e au scholar ${scholar_name}. Question : ${prompt}`,
-        });
-        const replyText = aiResponse.text;
-        db.run('INSERT INTO questions (username, domain, specialty, scholar_name, prompt, reply, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [req.user.username, domain, specialty, scholar_name, prompt, replyText, 'ü§ñ Juge Claude ‚è±Ô∏è 5 min', createdAt], function() {
-                res.json({ message: 'R√©ponse g√©n√©r√©e', reply: replyText, id: this.lastID });
-            });
-    } catch (e) {
-        res.status(500).json({ error: 'Erreur IA' });
-    }
-});
-
-app.get('/api/questions', (req, res) => {
-    db.all('SELECT * FROM questions ORDER BY id DESC', [], (err, rows) => { res.json(rows); });
-});
-
+// Interface Web HTML Principale avec les deux liens (Visiteur / Admin auto) et QR Code / Logo
 app.get('/', (req, res) => {
-    res.send(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>Scholars Connect</title>
-<style>
-body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 20px; background: #f0f2f5; }
-.card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-input, select, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-button { background: #007BFF; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; margin-top: 5px; }
-button:hover { background: #0056b3; }
-.hidden { display: none; }
-pre { background: #eee; padding: 10px; border-radius: 4px; white-space: pre-wrap; }
-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-th { background: #f2f2f2; }
-</style>
-</head>
-<body>
-<div class="card">
-<h2>üåç Scholars Connect - Public</h2>
-<p><span id="user-display">üë§ Visiteur</span> | <button onclick="logout()" id="logout-btn" class="hidden" style="background:#d9534f;padding:5px 10px;">D√©connexion</button></p>
-</div>
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Scholars Connect - Plateforme AcadÈmique</title>
+        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+        <style>
+            :root { --primary: #2563eb; --admin-color: #dc2626; --bg: #f8fafc; --text: #1e293b; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+            header { background: white; padding: 1rem 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+            .logo-area { display: flex; align-items: center; gap: 10px; font-weight: bold; font-size: 1.2rem; color: var(--primary); }
+            .logo-area img { width: 40px; height: 40px; border-radius: 8px; }
+            .nav-links { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+            .nav-links a { text-decoration: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; transition: background 0.2s; cursor: pointer; }
+            .link-visitor { background: #e0f2fe; color: #0369a1; }
+            .link-visitor:hover { background: #bae6fd; }
+            .link-admin { background: #fee2e2; color: var(--admin-color); border: 1px dashed var(--admin-color); }
+            .link-admin:hover { background: #fecaca; }
+            .container { max-width: 900px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+            h1 { color: var(--primary); margin-top: 0; }
+            .card { background: #f1f5f9; padding: 1.5rem; border-radius: 8px; margin-top: 1.5rem; }
+            input, textarea, select { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+            button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+            button:hover { opacity: 0.9; }
+            .share-box { text-align: center; margin-top: 2rem; padding: 1.5rem; background: #eff6ff; border-radius: 8px; }
+            #qrcode { display: inline-block; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div class="logo-area">
+                <img src="https://api.iconify.design/fluent-emoji-flat:mortar-board.svg" alt="Logo Scholars">
+                <span>Scholars Connect</span>
+            </div>
+            <div class="nav-links">
+                <!-- Lien Visiteur Direct -->
+                <a class="link-visitor" href="#" onclick="setMode('visitor')">?? Mode Visiteur</a>
+                <!-- Lien Admin avec Saisie Automatique intÈgrÈe -->
+                <a class="link-admin" href="#" onclick="autoLoginAdmin()">? AccËs Admin (Saisie Auto)</a>
+            </div>
+        </header>
 
-<div class="card" id="auth-card">
-<h3>üîê Connexion / Inscription</h3>
-<input type="text" id="username" placeholder="Email (ex: ramsis0710@gmail.com)">
-<input type="password" id="password" placeholder="Mot de passe">
-<button onclick="login()">Se connecter</button>
-<button onclick="register()" style="background:#5cb85c;">S'inscrire</button>
-<button onclick="fillAdmin()" style="background:#6c757d;">Remplir Admin Auto</button>
-<p id="auth-msg" style="color:red;font-weight:bold;"></p>
-</div>
+        <div class="container">
+            <h1>Bienvenue sur Scholars Connect</h1>
+            <p>Plateforme multilingue d'entraide acadÈmique, de gestion de projets de recherche et d'assistance par Intelligence Artificielle.</p>
 
-<div class="card hidden" id="admin-dashboard">
-<h3>üõ°Ô∏è Tableau de Bord Administrateur (ramsis0710@gmail.com)</h3>
-<div id="admin-container">Chargement...</div>
-</div>
+            <div class="card" id="auth-card">
+                <h3 id="form-title">Connexion Espace Administrateur / Membre</h3>
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <label>Email :</label>
+                    <input type="email" id="email" required placeholder="Ex: admin@scholars.com">
+                    <label>Mot de passe :</label>
+                    <input type="password" id="password" required placeholder="Ex: admin123">
+                    <button type="submit" id="submit-btn">Se connecter</button>
+                </form>
+                <p id="auth-status" style="margin-top: 10px; font-weight: bold;"></p>
+            </div>
 
-<div class="card hidden" id="question-card">
-<h3>üéì Poser une question</h3>
-<select id="domain"><option value="Islam">Islam</option><option value="Medecine">Medecine</option><option value="General" selected>General</option></select>
-<input type="text" id="specialty" placeholder="Sp√©cialit√©">
-<input type="text" id="scholar" placeholder="Nom du Scholar">
-<textarea id="prompt" rows="3" placeholder="Votre question ou dict√©e vocale..."></textarea>
-<button onclick="startVoice()" style="background:#5cb85c;">üé§ Dict√©e Vocale (7s pause)</button>
-<button onclick="sendQuestion()">Envoyer</button>
-<p id="voice-status" style="font-weight:bold;color:#007BFF;"></p>
-</div>
+            <div class="card">
+                <h3>?? Assistant IA Gemini IntÈgrÈ</h3>
+                <textarea id="aiPrompt" placeholder="Posez une question acadÈmique ou demandez une traduction..."></textarea>
+                <button onclick="askAI()">Interroger l'IA</button>
+                <div id="aiResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 10px; border-radius: 6px;"></div>
+            </div>
 
-<div class="card">
-<h3>üìã Historique</h3>
-<button onclick="loadQuestions()">üîÑ Rafra√Æchir</button>
-<div id="q-list" style="margin-top:10px;"></div>
-</div>
+            <div class="share-box">
+                <h3>?? Partager l'Application</h3>
+                <p>Scannez ou partagez ce QR code pour accÈder directement ‡ l'application web :</p>
+                <div id="qrcode"></div>
+                <p style="font-size: 0.85rem; color: #64748b; margin-top: 8px;" id="current-url"></p>
+            </div>
+        </div>
 
-<script>
-let token = localStorage.getItem('token') || '';
-let username = localStorage.getItem('username') || '';
+        <script>
+            // Affichage dynamique de l'URL et gÈnÈration du QR Code
+            const currentUrl = window.location.href;
+            document.getElementById('current-url').innerText = currentUrl;
+            QRCode.toCanvas(document.getElementById('qrcode'), currentUrl, { width: 140 }, function (error) {
+                if (error) console.error(error);
+            });
 
-function fillAdmin() {
-    document.getElementById('username').value = 'ramsis0710@gmail.com';
-    document.getElementById('password').value = 'AdminPass123!';
-}
-
-function checkUI() {
-    if (token) {
-        document.getElementById('auth-card').classList.add('hidden');
-        document.getElementById('question-card').classList.remove('hidden');
-        document.getElementById('logout-btn').classList.remove('hidden');
-        document.getElementById('user-display').innerText = 'üë§ ' + username;
-        if (username === 'ramsis0710@gmail.com') {
-            document.getElementById('admin-dashboard').classList.remove('hidden');
-            loadAdmin();
-        }
-    } else {
-        document.getElementById('auth-card').classList.remove('hidden');
-        document.getElementById('question-card').classList.add('hidden');
-        document.getElementById('admin-dashboard').classList.add('hidden');
-        document.getElementById('logout-btn').classList.add('hidden');
-        document.getElementById('user-display').innerText = 'üë§ Visiteur';
-    }
-}
-
-function startVoice() {
-    const status = document.getElementById('voice-status');
-    const txt = document.getElementById('prompt');
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { alert('Reconnaissance vocale non support√©e'); return; }
-    const rec = new SpeechRecognition();
-    rec.onresult = (e) => {
-        const speech = e.results[0][0].transcript;
-        status.innerText = '‚è±Ô∏è Pause de r√©flexion de 7 secondes...';
-        let count = 7;
-        let t = setInterval(() => {
-            count--;
-            status.innerText = '‚è±Ô∏è Validation dans ' + count + 's...';
-            if(count < 0) {
-                clearInterval(t);
-                txt.value += (txt.value ? ' ' : '') + speech;
-                status.innerText = '‚úÖ Dict√©e ajout√©e !';
+            function setMode(mode) {
+                if(mode === 'visitor') {
+                    alert('Mode Visiteur activÈ : Consultation libre des publications acadÈmiques.');
+                    document.getElementById('email').value = '';
+                    document.getElementById('password').value = '';
+                    document.getElementById('auth-status').innerText = 'Mode connectÈ : Visiteur';
+                    document.getElementById('auth-status').style.color = '#0369a1';
+                }
             }
-        }, 1000);
-    };
-    rec.start();
-    status.innerText = 'üéôÔ∏è Parlez maintenant...';
-}
 
-async function login() {
-    const u = document.getElementById('username').value;
-    const p = document.getElementById('password').value;
-    const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username:u, password:p}) });
-    const data = await res.json();
-    if (data.token) {
-        token = data.token; username = data.username;
-        localStorage.setItem('token', token); localStorage.setItem('username', username);
-        checkUI(); loadQuestions();
-    } else { document.getElementById('auth-msg').innerText = data.error; }
-}
+            // Fonction de Saisie Automatique Admin instantanÈe
+            function autoLoginAdmin() {
+                document.getElementById('email').value = 'admin@scholars.com';
+                document.getElementById('password').value = 'admin123';
+                // DÈclenchement automatique de la connexion
+                document.getElementById('loginForm').requestSubmit();
+            }
 
-async function register() {
-    const u = document.getElementById('username').value;
-    const p = document.getElementById('password').value;
-    const res = await fetch('/api/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username:u, password:p}) });
-    const data = await res.json();
-    document.getElementById('auth-msg').innerText = data.message || data.error;
-}
+            async function handleLogin(event) {
+                event.preventDefault();
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
 
-async function logout() {
-    await fetch('/api/logout', { method: 'POST', headers: {'Authorization':'Bearer ' + token} });
-    localStorage.clear(); token = ''; username = ''; checkUI();
-}
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                const statusEl = document.getElementById('auth-status');
+                if (res.ok) {
+                    statusEl.innerText = '? ConnectÈ avec succËs en tant que : ' + data.user.role.toUpperCase();
+                    statusEl.style.color = 'green';
+                } else {
+                    statusEl.innerText = '? Erreur : ' + data.error;
+                    statusEl.style.color = 'red';
+                }
+            }
 
-async function loadAdmin() {
-    const res = await fetch('/api/admin/users', { headers: {'Authorization':'Bearer ' + token} });
-    const users = await res.json();
-    let html = '<table><tr><th>ID</th><th>User</th><th>Statut</th><th>Action</th></tr>';
-    users.forEach(u => {
-        let actionBtn = (u.username !== 'ramsis0710@gmail.com') 
-            ? '<button onclick="toggleUser(' + u.id + ', \'' + u.status + '\')">Changer</button>' 
-            : 'Admin';
-        html += '<tr><td>' + u.id + '</td><td>' + u.username + '</td><td>' + u.status + '</td><td>' + actionBtn + '</td></tr>';
-    });
-    html += '</table>';
-    document.getElementById('admin-container').innerHTML = html;
-}
+            async function askAI() {
+                const prompt = document.getElementById('aiPrompt').value;
+                const responseDiv = document.getElementById('aiResponse');
+                responseDiv.innerText = 'GÈnÈration en cours...';
+                
+                try {
+                    const res = await fetch('/api/ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt })
+                    });
+                    const data = await res.json();
+                    responseDiv.innerText = data.answer || data.error;
+                } catch (e) {
+                    responseDiv.innerText = 'Erreur de communication avec líIA.';
+                }
+            }
+        </script>
+    </body>
+    </html>
+  `);
+});
 
-async function toggleUser(id, current) {
-    const newStatus = current === 'active' ? 'inactive' : 'active';
-    await fetch('/api/admin/toggle-status', { method: 'POST', headers: {'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({userId: id, status: newStatus}) });
-    loadAdmin();
-}
-
-async function sendQuestion() {
-    const domain = document.getElementById('domain').value;
-    const specialty = document.getElementById('specialty').value || 'G√©n√©ral';
-    const scholar_name = document.getElementById('scholar').value || 'Dr. Scholar';
-    const prompt = document.getElementById('prompt').value;
-    const res = await fetch('/api/questions', { method: 'POST', headers: {'Content-Type':'application/json', 'Authorization':'Bearer ' + token}, body: JSON.stringify({domain, specialty, scholar_name, prompt}) });
-    if(res.ok) { document.getElementById('prompt').value = ''; loadQuestions(); }
-}
-
-async function loadQuestions() {
-    const res = await fetch('/api/questions');
-    const data = await res.json();
-    let html = '';
-    data.forEach(q => {
-        html += '<div style="background:#fff;padding:10px;margin-bottom:10px;border-radius:5px;"><b>' + q.domain + '</b> - ' + q.username + '<p>Q: ' + q.prompt + '</p><pre>' + q.reply + '</pre><button onclick="speak(\'' + encodeURIComponent(q.reply) + '\')">üîä √âcouter</button></div>';
-    });
-    document.getElementById('q-list').innerHTML = html;
-}
-
-function speak(text) {
-    if('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(decodeURIComponent(text)));
+// API de Connexion
+app.post('/api/login', (dbConnect => async (req, res) => {
+  const { email, password } = req.body;
+  db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
+    if (err || !user) {
+      return res.status(401).json({ error: 'Utilisateur non trouvÈ.' });
     }
-}
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Mot de passe incorrect.' });
+    }
+    const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ message: 'Connexion rÈussie', token, user: { name: user.name, email: user.email, role: user.role } });
+  });
+})(db));
 
-checkUI(); loadQuestions();
-</script>
-</body>
-</html>`);
+// API Assistant IA Gemini
+app.post('/api/ai', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) {
+    return res.status(400).json({ error: 'Prompt requis.' });
+  }
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    res.json({ answer: response.text });
+  } catch (error) {
+    console.error('Erreur IA Gemini:', error);
+    res.status(500).json({ error: 'Erreur lors de la gÈnÈration avec líIA.' });
+  }
 });
 
 app.listen(PORT, () => {
-    console.log(`Serveur op√©rationnel sur le port ${PORT}`);
+  console.log(`Serveur dÈmarrÈ sur le port ${PORT}`);
 });
