@@ -10,19 +10,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'scholars_secret_key_2026';
 
-// Initialisation de l'API Google Gemini (Utilise process.env.GEMINI_API_KEY)
 const ai = new GoogleGenAI();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configuration de la base de donnÈes SQLite
 const dbFile = path.join(__dirname, 'scholars.db');
 const db = new sqlite3.Database(dbFile, (err) => {
   if (err) {
-    console.error('Erreur d\'ouverture de la base de donnÈes', err.message);
+    console.error('Erreur d\'ouverture de la base de donn√©es', err.message);
   } else {
-    console.log('ConnectÈ ‡ la base de donnÈes SQLite.');
+    console.log('Connect√© √† la base de donn√©es SQLite.');
     initDb();
   }
 });
@@ -36,30 +34,19 @@ function initDb() {
       password TEXT NOT NULL,
       role TEXT DEFAULT 'visitor'
     )`, () => {
-      // CrÈation automatique d'un compte Admin par dÈfaut
       const adminEmail = 'admin@scholars.com';
       db.get(`SELECT * FROM users WHERE email = ?`, [adminEmail], async (err, row) => {
         if (!row) {
           const hashedPassword = await bcrypt.hash('admin123', 10);
           db.run(`INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)`,
             ['Administrateur', adminEmail, hashedPassword, 'admin']);
-          console.log('Compte Administrateur par dÈfaut crÈÈ : admin@scholars.com / admin123');
+          console.log('Compte Administrateur par d√©faut cr√©√© : admin@scholars.com / admin123');
         }
       });
     });
-
-    db.run(`CREATE TABLE IF NOT EXISTS posts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      author TEXT NOT NULL,
-      language TEXT DEFAULT 'fr',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
   });
 }
 
-// Interface Web HTML Principale avec les deux liens (Visiteur / Admin auto) et QR Code / Logo
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -67,7 +54,7 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Scholars Connect - Plateforme AcadÈmique</title>
+        <title>Scholars Connect - Plateforme Acad√©mique</title>
         <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
         <style>
             :root { --primary: #2563eb; --admin-color: #dc2626; --bg: #f8fafc; --text: #1e293b; }
@@ -79,16 +66,18 @@ app.get('/', (req, res) => {
             .nav-links a { text-decoration: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; transition: background 0.2s; cursor: pointer; }
             .link-visitor { background: #e0f2fe; color: #0369a1; }
             .link-visitor:hover { background: #bae6fd; }
-            .link-admin { background: #fee2e2; color: var(--admin-color); border: 1px dashed var(--admin-color); }
-            .link-admin:hover { background: #fecaca; }
+            .link-admin-toggle { background: #f1f5f9; color: #64748b; font-size: 0.8rem; }
             .container { max-width: 900px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
             h1 { color: var(--primary); margin-top: 0; }
             .card { background: #f1f5f9; padding: 1.5rem; border-radius: 8px; margin-top: 1.5rem; }
             input, textarea, select { width: 100%; padding: 10px; margin: 8px 0 15px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-            button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+            button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
             button:hover { opacity: 0.9; }
+            .btn-secondary { background: #0ea5e9; }
+            .btn-success { background: #16a34a; }
             .share-box { text-align: center; margin-top: 2rem; padding: 1.5rem; background: #eff6ff; border-radius: 8px; }
             #qrcode { display: inline-block; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; }
+            .links-display { background: #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9rem; }
         </style>
     </head>
     <body>
@@ -98,68 +87,84 @@ app.get('/', (req, res) => {
                 <span>Scholars Connect</span>
             </div>
             <div class="nav-links">
-                <!-- Lien Visiteur Direct -->
-                <a class="link-visitor" href="#" onclick="setMode('visitor')">?? Mode Visiteur</a>
-                <!-- Lien Admin avec Saisie Automatique intÈgrÈe -->
-                <a class="link-admin" href="#" onclick="autoLoginAdmin()">? AccËs Admin (Saisie Auto)</a>
+                <a class="link-visitor" href="#" onclick="setMode('visitor')">üåç Mode Visiteur</a>
+                <a class="link-admin-toggle" href="#" onclick="toggleAdminPanel()">‚öôÔ∏è Espace Admin</a>
             </div>
         </header>
 
         <div class="container">
             <h1>Bienvenue sur Scholars Connect</h1>
-            <p>Plateforme multilingue d'entraide acadÈmique, de gestion de projets de recherche et d'assistance par Intelligence Artificielle.</p>
+            <p>Plateforme multilingue d'entraide acad√©mique et d'assistance intelligente vocale.</p>
 
-            <div class="card" id="auth-card">
-                <h3 id="form-title">Connexion Espace Administrateur / Membre</h3>
+            <div class="links-display">
+                <strong>üîó Liens d'acc√®s rapides :</strong><br>
+                ‚Ä¢ <a href="#" id="link-v-url" onclick="setMode('visitor'); return false;">Lien Visiteur</a><br>
+                ‚Ä¢ <a href="#" id="link-a-url" onclick="toggleAdminPanel(); return false;">Lien Administrateur</a>
+            </div>
+
+            <!-- Panneau Admin Cach√© par d√©faut pour les visiteurs -->
+            <div class="card" id="admin-panel" style="display: none; border: 2px dashed var(--admin-color);">
+                <h3 style="color: var(--admin-color);">üîê Connexion Espace Administrateur</h3>
                 <form id="loginForm" onsubmit="handleLogin(event)">
                     <label>Email :</label>
-                    <input type="email" id="email" required placeholder="Ex: admin@scholars.com">
+                    <input type="email" id="email" placeholder="admin@scholars.com">
                     <label>Mot de passe :</label>
-                    <input type="password" id="password" required placeholder="Ex: admin123">
-                    <button type="submit" id="submit-btn">Se connecter</button>
+                    <input type="password" id="password" placeholder="admin123">
+                    <button type="submit" style="background: var(--admin-color);">Se connecter (Admin Auto)</button>
                 </form>
                 <p id="auth-status" style="margin-top: 10px; font-weight: bold;"></p>
             </div>
 
             <div class="card">
-                <h3>?? Assistant IA Gemini IntÈgrÈ</h3>
-                <textarea id="aiPrompt" placeholder="Posez une question acadÈmique ou demandez une traduction..."></textarea>
-                <button onclick="askAI()">Interroger l'IA</button>
-                <div id="aiResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 10px; border-radius: 6px;"></div>
+                <h3>ü§ñ Assistant IA Gemini (Vocale & Texte)</h3>
+                <textarea id="aiPrompt" placeholder="Tapez votre question ou utilisez le micro..."></textarea>
+                
+                <div>
+                    <button class="btn-secondary" onclick="startVoiceInput()">üé§ Parler (Saisie Vocale)</button>
+                    <button class="btn-success" onclick="confirmAndSendAI()">‚úÖ Confirmer la fin des questions</button>
+                </div>
+
+                <div id="timer-display" style="font-weight: bold; color: #ca8a04; margin-top: 8px;"></div>
+                <div id="aiResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
+                <button onclick="speakResponse()" style="background: #475569; margin-top: 10px;">üîä √âcouter la r√©ponse</button>
             </div>
 
             <div class="share-box">
-                <h3>?? Partager l'Application</h3>
-                <p>Scannez ou partagez ce QR code pour accÈder directement ‡ l'application web :</p>
+                <h3>üì± Partager l'Application (Logo & QR Code)</h3>
+                <p>Scannez ce QR code ou partagez l'URL officielle :</p>
                 <div id="qrcode"></div>
                 <p style="font-size: 0.85rem; color: #64748b; margin-top: 8px;" id="current-url"></p>
             </div>
         </div>
 
         <script>
-            // Affichage dynamique de l'URL et gÈnÈration du QR Code
-            const currentUrl = window.location.href;
+            const currentUrl = window.location.href.split('#')[0];
             document.getElementById('current-url').innerText = currentUrl;
+            document.getElementById('link-v-url').innerText = currentUrl;
+            document.getElementById('link-a-url').innerText = currentUrl + '#admin';
+
             QRCode.toCanvas(document.getElementById('qrcode'), currentUrl, { width: 140 }, function (error) {
                 if (error) console.error(error);
             });
 
-            function setMode(mode) {
-                if(mode === 'visitor') {
-                    alert('Mode Visiteur activÈ : Consultation libre des publications acadÈmiques.');
-                    document.getElementById('email').value = '';
-                    document.getElementById('password').value = '';
-                    document.getElementById('auth-status').innerText = 'Mode connectÈ : Visiteur';
-                    document.getElementById('auth-status').style.color = '#0369a1';
-                }
+            if(window.location.hash === '#admin') {
+                toggleAdminPanel();
             }
 
-            // Fonction de Saisie Automatique Admin instantanÈe
-            function autoLoginAdmin() {
-                document.getElementById('email').value = 'admin@scholars.com';
-                document.getElementById('password').value = 'admin123';
-                // DÈclenchement automatique de la connexion
-                document.getElementById('loginForm').requestSubmit();
+            function setMode(mode) {
+                alert('Mode Visiteur activ√©.');
+                document.getElementById('admin-panel').style.display = 'none';
+            }
+
+            function toggleAdminPanel() {
+                const panel = document.getElementById('admin-panel');
+                if (panel.style.display === 'none') {
+                    panel.style.display = 'block';
+                    document.getElementById('email').value = 'admin@scholars.com';
+                    document.getElementById('password').value = 'admin123';
+                } else {
+                    panel.style.display = 'none';
+                }
             }
 
             async function handleLogin(event) {
@@ -175,18 +180,67 @@ app.get('/', (req, res) => {
                 const data = await res.json();
                 const statusEl = document.getElementById('auth-status');
                 if (res.ok) {
-                    statusEl.innerText = '? ConnectÈ avec succËs en tant que : ' + data.user.role.toUpperCase();
+                    statusEl.innerText = '‚úÖ Connect√© en tant que ' + data.user.role.toUpperCase();
                     statusEl.style.color = 'green';
                 } else {
-                    statusEl.innerText = '? Erreur : ' + data.error;
+                    statusEl.innerText = '‚ùå Erreur : ' + data.error;
                     statusEl.style.color = 'red';
                 }
             }
 
+            // Gestion de la Saisie Vocale (Speech-to-Text)
+            function startVoiceInput() {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    alert("La reconnaissance vocale n'est pas support√©e par votre navigateur. Utilisez Google Chrome.");
+                    return;
+                }
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'fr-FR';
+                recognition.interimResults = false;
+                
+                recognition.onstart = () => {
+                    document.getElementById('aiPrompt').placeholder = "√âcoute en cours... Parlez maintenant.";
+                };
+
+                recognition.onresult = (event) => {
+                    const speechToText = event.results[0][0].transcript;
+                    document.getElementById('aiPrompt').value = speechToText;
+                };
+
+                recognition.onerror = () => {
+                    alert("Erreur lors de la capture vocale.");
+                };
+
+                recognition.start();
+            }
+
+            // Minuteur de 7 secondes et Bouton de confirmation
+            let countdownInterval;
+            function confirmAndSendAI() {
+                let timeLeft = 7;
+                const timerEl = document.getElementById('timer-display');
+                clearInterval(countdownInterval);
+
+                timerEl.innerText = "‚è≥ Envoi programm√© dans " + timeLeft + " secondes... (Cliquez √† nouveau pour annuler ou patientez)";
+                
+                countdownInterval = setInterval(() => {
+                    timeLeft--;
+                    if (timeLeft > 0) {
+                        timerEl.innerText = "‚è≥ Envoi programm√© dans " + timeLeft + " secondes...";
+                    } else {
+                        clearInterval(countdownInterval);
+                        timerEl.innerText = "üöÄ Envoi de la question en cours...";
+                        askAI();
+                    }
+                }, 1000);
+            }
+
             async function askAI() {
+                document.getElementById('timer-display').innerText = "";
                 const prompt = document.getElementById('aiPrompt').value;
                 const responseDiv = document.getElementById('aiResponse');
-                responseDiv.innerText = 'GÈnÈration en cours...';
+                responseDiv.innerText = 'R√©flexion de l‚ÄôIA en cours...';
                 
                 try {
                     const res = await fetch('/api/ai', {
@@ -197,8 +251,17 @@ app.get('/', (req, res) => {
                     const data = await res.json();
                     responseDiv.innerText = data.answer || data.error;
                 } catch (e) {
-                    responseDiv.innerText = 'Erreur de communication avec líIA.';
+                    responseDiv.innerText = 'Erreur de communication avec l‚ÄôIA.';
                 }
+            }
+
+            // Synth√®se Vocale (Text-to-Speech)
+            function speakResponse() {
+                const text = document.getElementById('aiResponse').innerText;
+                if (!text) return;
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'fr-FR';
+                window.speechSynthesis.speak(utterance);
             }
         </script>
     </body>
@@ -206,23 +269,21 @@ app.get('/', (req, res) => {
   `);
 });
 
-// API de Connexion
-app.post('/api/login', (dbConnect => async (req, res) => {
+app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
     if (err || !user) {
-      return res.status(401).json({ error: 'Utilisateur non trouvÈ.' });
+      return res.status(401).json({ error: 'Utilisateur non trouv√©.' });
     }
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       return res.status(401).json({ error: 'Mot de passe incorrect.' });
     }
     const token = jwt.sign({ id: user.id, role: user.role, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
-    res.json({ message: 'Connexion rÈussie', token, user: { name: user.name, email: user.email, role: user.role } });
+    res.json({ message: 'Connexion r√©ussie', token, user: { name: user.name, email: user.email, role: user.role } });
   });
-})(db));
+});
 
-// API Assistant IA Gemini
 app.post('/api/ai', async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) {
@@ -236,10 +297,10 @@ app.post('/api/ai', async (req, res) => {
     res.json({ answer: response.text });
   } catch (error) {
     console.error('Erreur IA Gemini:', error);
-    res.status(500).json({ error: 'Erreur lors de la gÈnÈration avec líIA.' });
+    res.status(500).json({ error: 'Erreur lors de la g√©n√©ration avec l‚ÄôIA.' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Serveur dÈmarrÈ sur le port ${PORT}`);
+  console.log(`Serveur d√©marr√© sur le port ${PORT}`);
 });
