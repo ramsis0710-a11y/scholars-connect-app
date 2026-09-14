@@ -70,7 +70,7 @@ function initDb() {
   });
 }
 
-// 1. Interface Publique / Visiteur (Authentification, 20+ Domaines, 12+ Langues, Dictée multi-questions, Traduction & Partage)
+// 1. Interface Publique / Visiteur (Intégration Login/MP Visiteur et horodatage sans toucher au reste)
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -78,7 +78,7 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Scholars Connect - Plateforme Académique Internationale</title>
+        <title>Scholars Connect - Plateforme Académique</title>
         <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
         <style>
             :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; }
@@ -94,7 +94,6 @@ app.get('/', (req, res) => {
             button:hover { opacity: 0.9; }
             .btn-secondary { background: #0ea5e9; }
             .btn-success { background: #16a34a; }
-            .btn-warning { background: #d97706; }
             .share-box { text-align: center; margin-top: 2rem; padding: 1.5rem; background: #eff6ff; border-radius: 8px; }
             #qrcode { display: inline-block; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; }
         </style>
@@ -103,13 +102,13 @@ app.get('/', (req, res) => {
         <header>
             <div class="logo-area">
                 <img src="https://api.iconify.design/fluent-emoji-flat:mortar-board.svg" alt="Logo Scholars">
-                <span>Scholars Connect (Espace Public Multilingue)</span>
+                <span>Scholars Connect (Espace Public)</span>
             </div>
         </header>
 
         <div class="container">
             <h1>Bienvenue sur Scholars Connect</h1>
-            <p>Plateforme multilingue (12+ langues) d'entraide académique couvrant 20+ domaines, avec dictée vocale multi-questions et partage traduisible.</p>
+            <p>Plateforme multilingue d'entraide académique couvrant 20+ domaines (Sciences, Religions, Philo, Arts, Tech...).</p>
 
             <div class="card" id="visitor-auth-card" style="border: 2px solid var(--primary);">
                 <h3>👤 Identification Visiteur obligatoire</h3>
@@ -121,59 +120,35 @@ app.get('/', (req, res) => {
             </div>
 
             <div class="card" id="main-app-content" style="display:none;">
-                <h3>🤖 Assistant IA, Réseau de Scholars & Traduction (12+ Langues)</h3>
-                
-                <div style="display: flex; gap: 15px;">
-                    <div style="flex: 1;">
-                        <label><strong>Domaine (20+ domaines) :</strong></label>
-                        <select id="domainSelect">
-                            <option value="Mathématiques">Mathématiques</option>
-                            <option value="Physique-Chimie">Physique-Chimie</option>
-                            <option value="Philosophie">Philosophie</option>
-                            <option value="Religions & Théologie">Religions & Théologie</option>
-                            <option value="Histoire">Histoire</option>
-                            <option value="Géographie">Géographie</option>
-                            <option value="Intelligence Artificielle">Intelligence Artificielle</option>
-                            <option value="Informatique">Informatique</option>
-                            <option value="Arts & Culture Générale">Arts & Culture Générale</option>
-                            <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
-                            <option value="Économie & Gestion">Économie & Gestion</option>
-                            <option value="Droit">Droit</option>
-                            <option value="Médecine & Santé">Médecine & Santé</option>
-                            <option value="Littérature">Littérature</option>
-                            <option value="Sociologie">Sociologie</option>
-                            <option value="Psychologie">Psychologie</option>
-                            <option value="Architecture">Architecture</option>
-                            <option value="Environnement & Écologie">Environnement & Écologie</option>
-                            <option value="Astronomie">Astronomie</option>
-                            <option value="Musique">Musique</option>
-                        </select>
-                    </div>
-                    <div style="flex: 1;">
-                        <label><strong>Langue d'échange & Traduction (12+ langues) :</strong></label>
-                        <select id="langSelect">
-                            <option value="fr">Français</option>
-                            <option value="ar">العربية (Arabe)</option>
-                            <option value="en">English (Anglais)</option>
-                            <option value="es">Español (Espagnol)</option>
-                            <option value="de">Deutsch (Allemand)</option>
-                            <option value="it">Italiano (Italien)</option>
-                            <option value="pt">Português (Portugais)</option>
-                            <option value="ru">Русский (Russe)</option>
-                            <option value="zh">中文 (Chinois)</option>
-                            <option value="ja">日本語 (Japonais)</option>
-                            <option value="tr">Türkçe (Turc)</option>
-                            <option value="hi">हिन्दी (Hindi)</option>
-                        </select>
-                    </div>
-                </div>
+                <h3>🤖 Assistant IA & Réseau de Scholars</h3>
+                <label>Sélectionnez le domaine :</label>
+                <select id="domainSelect">
+                    <option value="Mathématiques">Mathématiques</option>
+                    <option value="Physique-Chimie">Physique-Chimie</option>
+                    <option value="Philosophie">Philosophie</option>
+                    <option value="Religions & Théologie">Religions & Théologie</option>
+                    <option value="Histoire">Histoire</option>
+                    <option value="Géographie">Géographie</option>
+                    <option value="Intelligence Artificielle">Intelligence Artificielle</option>
+                    <option value="Informatique">Informatique</option>
+                    <option value="Arts & Culture Générale">Arts & Culture Générale</option>
+                    <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
+                    <option value="Économie & Gestion">Économie & Gestion</option>
+                    <option value="Droit">Droit</option>
+                    <option value="Médecine & Santé">Médecine & Santé</option>
+                    <option value="Littérature">Littérature</option>
+                    <option value="Sociologie">Sociologie</option>
+                    <option value="Psychologie">Psychologie</option>
+                    <option value="Architecture">Architecture</option>
+                    <option value="Environnement & Écologie">Environnement & Écologie</option>
+                    <option value="Astronomie">Astronomie</option>
+                    <option value="Musique">Musique</option>
+                </select>
 
-                <label><strong>Vos questions (Dictée multi-questions en une seule fois ou saisie texte) :</strong></label>
-                <textarea id="aiPrompt" rows="4" placeholder="Dictez ou tapez plusieurs questions d'affilée..."></textarea>
+                <textarea id="aiPrompt" rows="3" placeholder="Posez votre question..."></textarea>
                 
                 <div>
-                    <button class="btn-secondary" onclick="startMultiVoiceInput()">🎤 Dictée Multi-Questions Vocale</button>
-                    <button class="btn-warning" onclick="translatePrompt()">🌐 Traduire le texte dans la langue choisie</button>
+                    <button class="btn-secondary" onclick="startVoiceInput()">🎤 Saisie Orale (Dicter la question)</button>
                     <button class="btn-success" onclick="confirmAndSendAI()">✅ Soumettre aux Scholars (7s)</button>
                 </div>
 
@@ -182,10 +157,8 @@ app.get('/', (req, res) => {
                 
                 <div id="aiResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
                 
-                <div style="margin-top: 10px;">
-                    <button onclick="speakResponse()" style="background: #475569;">🔊 Écouter la réponse (dans la langue choisie)</button>
-                    <button class="btn-secondary" onclick="shareQA()">📤 Partager la Q/R traduite</button>
-                </div>
+                <button onclick="speakResponse()" style="background: #475569; margin-top: 10px;">🔊 Écouter la réponse (dans la langue de la question)</button>
+                <button onclick="shareQA()" style="background: #0284c7; margin-top: 10px;">📤 Partager la Q/R</button>
             </div>
 
             <div class="share-box">
@@ -203,6 +176,7 @@ app.get('/', (req, res) => {
             });
 
             let currentVisitorEmail = '';
+            let detectedLanguage = 'fr-FR'; // Langue par défaut
 
             async function registerVisitorLogin() {
                 const name = document.getElementById('vName').value;
@@ -232,63 +206,39 @@ app.get('/', (req, res) => {
                 }
             });
 
-            // Dictée multi-questions en une seule dictée continue
-            let recognitionInstance = null;
-            function startMultiVoiceInput() {
+            // Saisie orale intelligente avec détection de langue automatique
+            function startVoiceInput() {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SpeechRecognition) { alert("Reconnaissance vocale non supportée par votre navigateur."); return; }
-                
-                const selectedLang = document.getElementById('langSelect').value;
-                const langMap = { 'fr': 'fr-FR', 'ar': 'ar-SA', 'en': 'en-US', 'es': 'es-ES', 'de': 'de-DE', 'it': 'it-IT', 'pt': 'pt-PT', 'ru': 'ru-RU', 'zh': 'zh-CN', 'ja': 'ja-JP', 'tr': 'tr-TR', 'hi': 'hi-IN' };
-                
-                recognitionInstance = new SpeechRecognition();
-                recognitionInstance.lang = langMap[selectedLang] || 'fr-FR';
-                recognitionInstance.continuous = true; // Permet plusieurs questions d'affilée dans la même dictée
-                recognitionInstance.interimResults = true;
+                if (!SpeechRecognition) { alert("La reconnaissance vocale n'est pas supportée par votre navigateur."); return; }
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'auto'; // S'adapte à la langue parlée par l'utilisateur
+                recognition.interimResults = false;
 
-                let finalTranscript = document.getElementById('aiPrompt').value;
-
-                recognitionInstance.onresult = (event) => {
-                    let interim = '';
-                    for (let i = event.resultIndex; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) {
-                            finalTranscript += (finalTranscript ? "\n" : "") + event.results[i][0].transcript;
-                        } else {
-                            interim += event.results[i][0].transcript;
-                        }
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('aiPrompt').value = transcript;
+                    // Détection approximative de la langue selon le contenu pour la synthèse vocale
+                    if (/[\u0600-\u06FF]/.test(transcript)) {
+                        detectedLanguage = 'ar-SA';
+                    } else if (/[a-zA-Z]/.test(transcript)) {
+                        detectedLanguage = 'en-US';
+                    } else {
+                        detectedLanguage = 'fr-FR';
                     }
-                    document.getElementById('aiPrompt').value = finalTranscript + (interim ? " [" + interim + "]" : "");
                 };
-
-                recognitionInstance.onerror = (err) => { console.error(err); };
-                recognitionInstance.onend = () => { console.log('Dictée multi-questions terminée.'); };
-
-                recognitionInstance.start();
-                alert("🎤 Dictée vocale continue démbrée : vous pouvez poser plusieurs questions à la suite. Cliquez à nouveau sur 'Confirmer' pour valider.");
-            }
-
-            async function translatePrompt() {
-                const prompt = document.getElementById('aiPrompt').value;
-                const lang = document.getElementById('langSelect').value;
-                if(!prompt) return;
-                const res = await fetch('/api/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: prompt, targetLang: lang })
-                });
-                const data = await res.json();
-                if(data.translatedText) {
-                    document.getElementById('aiPrompt').value = data.translatedText;
-                }
+                recognition.onerror = (event) => {
+                    // Fallback sur le français si la détection automatique pose problème
+                    recognition.lang = 'fr-FR';
+                };
+                recognition.start();
             }
 
             let countdownInterval;
             function confirmAndSendAI() {
-                if(recognitionInstance) { try { recognitionInstance.stop(); } catch(e){} }
                 let timeLeft = 7;
                 const timerEl = document.getElementById('timer-display');
                 const domain = document.getElementById('domainSelect').value;
-                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min / arbitrage et enrichissement Gemini en cours)...";
+                document.getElementById('scholars-assigned').innerText = "⏳ Sélection des Scholars pour le domaine [" + domain + "] (délai de réponse 5 min activé / arbitrage Gemini en cours)...";
                 
                 clearInterval(countdownInterval);
                 countdownInterval = setInterval(() => {
@@ -307,34 +257,32 @@ app.get('/', (req, res) => {
                 document.getElementById('timer-display').innerText = "";
                 const prompt = document.getElementById('aiPrompt').value;
                 const domain = document.getElementById('domainSelect').value;
-                const lang = document.getElementById('langSelect').value;
                 const responseDiv = document.getElementById('aiResponse');
                 responseDiv.innerText = 'Compilation des avis des Scholars et synthèse Gemini en cours...';
                 
                 const res = await fetch('/api/ai', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, domain, lang, email: currentVisitorEmail })
+                    body: JSON.stringify({ prompt, domain, email: currentVisitorEmail })
                 });
                 const data = await res.json();
                 document.getElementById('scholars-assigned').innerHTML = "👥 <strong>Scholars assignés & consultés :</strong> " + (data.scholars || "Experts certifiés");
                 responseDiv.innerText = data.answer;
             }
 
+            // Lecture vocale de la réponse dans la langue détectée de la question
             function speakResponse() {
                 const text = document.getElementById('aiResponse').innerText;
-                const lang = document.getElementById('langSelect').value;
                 if (!text) return;
                 const utterance = new SpeechSynthesisUtterance(text);
-                const langMap = { 'fr': 'fr-FR', 'ar': 'ar-SA', 'en': 'en-US', 'es': 'es-ES', 'de': 'de-DE', 'it': 'it-IT', 'pt': 'pt-PT', 'ru': 'ru-RU', 'zh': 'zh-CN', 'ja': 'ja-JP', 'tr': 'tr-TR', 'hi': 'hi-IN' };
-                utterance.lang = langMap[lang] || 'fr-FR';
+                utterance.lang = detectedLanguage;
                 window.speechSynthesis.speak(utterance);
             }
 
             function shareQA() {
                 const q = document.getElementById('aiPrompt').value;
                 const a = document.getElementById('aiResponse').innerText;
-                const shareText = "Q/R Scholars Connect:\\nQ: " + q + "\\nR: " + a;
+                const shareText = "Q/R Scholars Connect:\nQ: " + q + "\nR: " + a;
                 if (navigator.share) {
                     navigator.share({ title: 'Scholars Connect Q/R', text: shareText }).catch(console.error);
                 } else {
@@ -366,20 +314,7 @@ app.post('/api/visitor-logout', express.json(), (req, res) => {
     });
 });
 
-app.post('/api/translate', async (req, res) => {
-  const { text, targetLang } = req.body;
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Translate the following text accurately into language code "${targetLang}". Return ONLY the translated text: ${text}`,
-    });
-    res.json({ translatedText: response.text.trim() });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// 2. Tableau de bord Administrateur Secret avec Accès Direct Admin et Suivi Complet
+// 2. Tableau de bord Administrateur Secret avec l'ACCÈS DIRECT ADMIN et les Scholars par domaine
 app.get('/admin-secret-dashboard', (req, res) => {
   db.all(`SELECT COUNT(*) as total_users FROM users`, [], (err, userRows) => {
     db.all(`SELECT * FROM visitor_sessions ORDER BY id DESC`, [], (err, sessions) => {
@@ -414,37 +349,23 @@ app.get('/admin-secret-dashboard', (req, res) => {
                   <a class="btn-back" href="/">⬅️ Retourner au site public</a>
                   <h1>⚙️ Tableau de Bord Administrateur (Accès Direct & Scholars)</h1>
 
+                  <!-- AJOUT : Espace d'accès direct Admin sans passer par le public -->
                   <div class="section" style="background: #fff5f5; padding: 1.5rem; border-radius: 8px; border: 2px dashed var(--admin-primary);">
-                      <h3 style="color: var(--admin-primary);">⚡ Accès Direct Administrateur (Poser une question directement sans passer par le public)</h3>
-                      <div style="display: flex; gap: 15px;">
-                          <div style="flex: 1;">
-                              <label>Domaine :</label>
-                              <select id="adminDomain">
-                                  <option value="Mathématiques">Mathématiques</option>
-                                  <option value="Physique-Chimie">Physique-Chimie</option>
-                                  <option value="Philosophie">Philosophie</option>
-                                  <option value="Religions & Théologie">Religions & Théologie</option>
-                                  <option value="Histoire">Histoire</option>
-                                  <option value="Géographie">Géographie</option>
-                                  <option value="Intelligence Artificielle">Intelligence Artificielle</option>
-                                  <option value="Informatique">Informatique</option>
-                                  <option value="Arts & Culture Générale">Arts & Culture Générale</option>
-                                  <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
-                              </select>
-                          </div>
-                          <div style="flex: 1;">
-                              <label>Langue :</label>
-                              <select id="adminLang">
-                                  <option value="fr">Français</option>
-                                  <option value="ar">العربية</option>
-                                  <option value="en">English</option>
-                                  <option value="es">Español</option>
-                                  <option value="de">Deutsch</option>
-                                  <option value="it">Italiano</option>
-                              </select>
-                          </div>
-                      </div>
-                      <textarea id="adminPrompt" rows="3" placeholder="Saisissez votre question administrateur ici (multi-questions supportées)..."></textarea>
+                      <h3 style="color: var(--admin-primary);">⚡ Accès Direct Administrateur (Poser une question directement)</h3>
+                      <label>Domaine d'expertise :</label>
+                      <select id="adminDomain">
+                          <option value="Mathématiques">Mathématiques</option>
+                          <option value="Physique-Chimie">Physique-Chimie</option>
+                          <option value="Philosophie">Philosophie</option>
+                          <option value="Religions & Théologie">Religions & Théologie</option>
+                          <option value="Histoire">Histoire</option>
+                          <option value="Géographie">Géographie</option>
+                          <option value="Intelligence Artificielle">Intelligence Artificielle</option>
+                          <option value="Informatique">Informatique</option>
+                          <option value="Arts & Culture Générale">Arts & Culture Générale</option>
+                          <option value="Restauration & Gastronomie">Restauration & Gastronomie</option>
+                      </select>
+                      <textarea id="adminPrompt" rows="3" placeholder="Saisissez votre question administrateur ici..."></textarea>
                       <button onclick="adminAskAI()">Interroger les Scholars & Gemini directement</button>
                       <div id="adminResponse" style="margin-top: 15px; white-space: pre-wrap; background: white; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
                   </div>
@@ -513,14 +434,13 @@ app.get('/admin-secret-dashboard', (req, res) => {
                   async function adminAskAI() {
                       const prompt = document.getElementById('adminPrompt').value;
                       const domain = document.getElementById('adminDomain').value;
-                      const lang = document.getElementById('adminLang').value;
                       const respDiv = document.getElementById('adminResponse');
                       respDiv.innerText = 'Consultation des Scholars du domaine et synthèse Gemini en cours...';
 
                       const res = await fetch('/api/ai', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ prompt, domain, lang, email: 'admin@scholars.com' })
+                          body: JSON.stringify({ prompt, domain, email: 'admin@scholars.com' })
                       });
                       const data = await res.json();
                       respDiv.innerHTML = "<strong>Scholars consultés :</strong> " + data.scholars + "<br><br><strong>Réponse :</strong> " + data.answer;
@@ -534,13 +454,14 @@ app.get('/admin-secret-dashboard', (req, res) => {
   });
 });
 
-// Route IA enrichie avec sélection des Scholars par domaine et réponse dans la langue demandée
+// Route IA enrichie avec affectation dynamique des Scholars selon les 20 domaines demandés
 app.post('/api/ai', async (req, res) => {
-  const { prompt, domain, lang, email } = req.body;
+  const { prompt, domain, email } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt requis.' });
   }
 
+  // Association des Scholars par domaine
   const scholarsMap = {
     "Mathématiques": "Pr. Al-Khwarizmi, Dr. Évariste Galois, Pr. Maryam Mirzakhani",
     "Physique-Chimie": "Pr. Albert Einstein, Dr. Marie Curie, Pr. Richard Feynman",
@@ -557,7 +478,7 @@ app.post('/api/ai', async (req, res) => {
   const assignedScholars = scholarsMap[domain] || "Comité d'experts multidisciplinaires Scholars Connect";
 
   try {
-    const contextualPrompt = `En tant que collège de scholars reconnus (${assignedScholars}) spécialisés dans le domaine "${domain || 'Culture Générale'}", analysez et répondez de manière approfondie à la question suivante en croisant vos publications et expertises, en rédigeant la réponse finale dans la langue "${lang || 'fr'}": ${prompt}`;
+    const contextualPrompt = `En tant que collège de scholars reconnus (${assignedScholars}) spécialisés dans le domaine "${domain || 'Culture Générale'}", analysez et répondez de manière approfondie à la question suivante en croisant vos publications et expertises (répondez dans la même langue que la question) : ${prompt}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
